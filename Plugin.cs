@@ -50,7 +50,7 @@ public static class PlayerSpawnPatch
 {
     static void Prefix(PhotonView ___photonView)
     {
-        if (RunManager.instance.levelMainMenu == RunManager.instance.levelCurrent) return;
+        if (RunManager.instance.levelShop != RunManager.instance.levelCurrent) return;
         if (GameManager.Multiplayer() && !___photonView.IsMine) return;
 
         Plugin.isOpen = true;
