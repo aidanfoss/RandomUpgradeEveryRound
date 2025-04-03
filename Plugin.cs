@@ -1,8 +1,6 @@
 ﻿using BepInEx;
 using BepInEx.Logging;
 using HarmonyLib;
-using MenuLib.MonoBehaviors;
-using MenuLib;
 using UnityEngine;
 using Photon.Pun;
 using System.Collections.Generic;
@@ -12,7 +10,6 @@ using System.Linq;
 
 namespace UpgradeEveryRound;
 
-[BepInPlugin(modGUID, modName, modVersion), BepInDependency("nickklmao.menulib", "2.1.3")]
 public class Plugin : BaseUnityPlugin
 {
     public const string modGUID = "dev.redfops.repo.upgradeeveryround";
@@ -95,104 +92,70 @@ public static class PlayerSpawnPatch
 #if DEBUG
         upgradesDeserved += 1;
 #endif
+
         if (StatsManager.instance.dictionaryOfDictionaries["playerUpgradesUsed"][_steamID] >= upgradesDeserved) return;
         if (GameManager.Multiplayer() && !___photonView.IsMine) return;
 
-        MenuManager.instance.PageCloseAll(); //Just in case somehow other menus were opened previously.
-        
-        var repoPopupPage = MenuAPI.CreateREPOPopupPage("Choose an upgrade", REPOPopupPage.PresetSide.Left, shouldCachePage: false, pageDimmerVisibility: true, spacing: 1.5f);
+        // Get number of upgrades to apply
+        int upgradesToApply = upgradesDeserved - StatsManager.instance.dictionaryOfDictionaries["playerUpgradesUsed"][_steamID];
 
-        repoPopupPage.menuPage.onPageEnd.AddListener(() => { Plugin.isOpen = false; }); //They really shouldn't be able to close it, but just in case we want to make sure their menus work
-
-        int numChoices = Plugin.limitedChoices.Value ? Plugin.numChoices.Value : 8;
-        List<int> choices = [0, 1, 2, 3, 4, 5, 6, 7];
-
-        //Add limited buttons randomly or all in order depending on config
-        for (int i = 0; i < numChoices; i++)
+        for (int i = 0; i < upgradesToApply; i++)
         {
-            int choiceIndex = Plugin.limitedChoices.Value ? Random.Range(0, choices.Count) : 0; //If not limited choices then we don't need to use random
-            int choice = choices[choiceIndex];
-            choices.RemoveAt(choiceIndex);
-            
+            ApplyRandomUpgrade(_steamID);
+        }
+    }
 
-            switch (choice)
-            {
-                case 0:
-                    repoPopupPage.AddElement(parent => MenuAPI.CreateREPOButton("Stamina", () =>
-                    {
-                        PunManager.instance.UpgradePlayerEnergy(_steamID);
-                        Plugin.ApplyUpgrade(_steamID, repoPopupPage);
-                        return;
-                    }, parent, new Vector2(46f, 18f)));
-                    break;
+    private static void ApplyRandomUpgrade(string _steamID)
+    {
+        List<int> availableChoices = [0, 1, 2, 3, 4, 5, 6, 7];
+        int numChoices = Plugin.limitedChoices.Value ? Plugin.numChoices.Value : availableChoices.Count;
 
-                case 1:
-                    repoPopupPage.AddElement(parent => MenuAPI.CreateREPOButton("Extra Jump", () =>
-                    {
-                        PunManager.instance.UpgradePlayerExtraJump(_steamID);
-                        Plugin.ApplyUpgrade(_steamID, repoPopupPage);
-                        return;
-                    }, parent, new Vector2(186f, 18f)));
-                    break;
-
-                case 2:
-                    repoPopupPage.AddElement(parent => MenuAPI.CreateREPOButton("Range", () =>
-                    {
-                        PunManager.instance.UpgradePlayerGrabRange(_steamID);
-                        Plugin.ApplyUpgrade(_steamID, repoPopupPage);
-                        return;
-                    }, parent, new Vector2(46f, 60f)));
-                    break;
-
-                case 3:
-                    repoPopupPage.AddElement(parent => MenuAPI.CreateREPOButton("Strength", () =>
-                    {
-                        PunManager.instance.UpgradePlayerGrabStrength(_steamID);
-                        Plugin.ApplyUpgrade(_steamID, repoPopupPage);
-                        return;
-                    }, parent, new Vector2(186f, 60f)));
-                    break;
-
-                case 4:
-                    repoPopupPage.AddElement(parent => MenuAPI.CreateREPOButton("Health", () =>
-                    {
-                        PunManager.instance.UpgradePlayerHealth(_steamID);
-                        Plugin.ApplyUpgrade(_steamID, repoPopupPage);
-                        return;
-                    }, parent, new Vector2(46f, 102f)));
-                    break;
-
-                case 5:
-                    repoPopupPage.AddElement(parent => MenuAPI.CreateREPOButton("Sprint speed", () =>
-                    {
-                        PunManager.instance.UpgradePlayerSprintSpeed(_steamID);
-                        Plugin.ApplyUpgrade(_steamID, repoPopupPage);
-                        return;
-                    }, parent, new Vector2(186f, 102f)));
-                    break;
-
-                case 6:
-                    repoPopupPage.AddElement(parent => MenuAPI.CreateREPOButton("Tumble Launch", () =>
-                    {
-                        PunManager.instance.UpgradePlayerTumbleLaunch(_steamID);
-                        Plugin.ApplyUpgrade(_steamID, repoPopupPage);
-                        return;
-                    }, parent, new Vector2(46f, 144f)));
-                    break;
-
-                case 7:
-                    repoPopupPage.AddElement(parent => MenuAPI.CreateREPOButton("Map Player Count", () =>
-                    {
-                        PunManager.instance.UpgradeMapPlayerCount(_steamID);
-                        Plugin.ApplyUpgrade(_steamID, repoPopupPage);
-                        return;
-                    }, parent, new Vector2(186f, 144f)));
-                    break;
-            }
+        if (Plugin.limitedChoices.Value)
+        {
+            while (availableChoices.Count > numChoices)
+                availableChoices.RemoveAt(Random.Range(0, availableChoices.Count));
         }
 
-        repoPopupPage.OpenPage(false);
-        Plugin.isOpen = true;
+        int chosenUpgrade = availableChoices[Random.Range(0, availableChoices.Count)];
+
+        switch (chosenUpgrade)
+        {
+            case 0:
+                PunManager.instance.UpgradePlayerEnergy(_steamID);
+                break;
+            case 1:
+                PunManager.instance.UpgradePlayerExtraJump(_steamID);
+                break;
+            case 2:
+                PunManager.instance.UpgradePlayerGrabRange(_steamID);
+                break;
+            case 3:
+                PunManager.instance.UpgradePlayerGrabStrength(_steamID);
+                break;
+            case 4:
+                PunManager.instance.UpgradePlayerHealth(_steamID);
+                break;
+            case 5:
+                PunManager.instance.UpgradePlayerSprintSpeed(_steamID);
+                break;
+            case 6:
+                PunManager.instance.UpgradePlayerTumbleLaunch(_steamID);
+                break;
+            case 7:
+                PunManager.instance.UpgradeMapPlayerCount(_steamID);
+                break;
+        }
+
+        // Increment upgrades used and sync if in multiplayer
+        int value = ++StatsManager.instance.dictionaryOfDictionaries["playerUpgradesUsed"][_steamID];
+        if (GameManager.Multiplayer())
+        {
+            PhotonView _photonView = PunManager.instance.GetComponent<PhotonView>();
+            _photonView.RPC("UpdateStatRPC", RpcTarget.Others, "playerUpgradesUsed", _steamID, value);
+        }
+
+        // Optional: Visual effect or audio
+        CameraGlitch.Instance?.PlayUpgrade();
     }
 }
 
