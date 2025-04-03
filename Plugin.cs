@@ -109,7 +109,7 @@ public static class PlayerSpawnPatch
     private static void ApplyRandomUpgrade(string _steamID)
     {
 
-        switch (Random.Range(0, 7))
+        switch (Random.Range(0, 8))
         {
             case 0:
                 PunManager.instance.UpgradePlayerEnergy(_steamID);
@@ -130,7 +130,14 @@ public static class PlayerSpawnPatch
                 PunManager.instance.UpgradePlayerSprintSpeed(_steamID);
                 break;
             case 6:
-                PunManager.instance.UpgradePlayerTumbleLaunch(_steamID);
+                try
+                {
+                    PunManager.instance.UpgradePlayerTumbleLaunch(_steamID);
+                }
+                catch (System.NullReferenceException ex)
+                {
+                    Plugin.Logger.LogWarning($"Caught NullRef in TumbleLaunch for {_steamID}: {ex.Message}");
+                }
                 break;
             case 7:
                 if (StatsManager.instance.playerUpgradeMapPlayerCount.ContainsKey(_steamID) &&
