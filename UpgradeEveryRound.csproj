@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <GameBaseDir>E:\SteamLibrary\steamapps\common\REPO</GameBaseDir>
+    <GameBaseDir>C:\Program Files (x86)\Steam\steamapps\common\REPO</GameBaseDir>
     <GameAssemblyDir>$(GameBaseDir)\REPO_Data\Managed</GameAssemblyDir>
     <AssemblyVersion>1.1.7</AssemblyVersion>
   </PropertyGroup>
@@ -33,9 +33,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Reference Include="MenuLib">
-      <HintPath>C:\Users\cadyn\AppData\Roaming\r2modmanPlus-local\REPO\profiles\stimky\BepInEx\plugins\nickklmao-MenuLib\MenuLib.dll</HintPath>
-    </Reference>
     <Reference Include="0Harmony">
       <HintPath>$(GameBaseDir)\BepInEx\core\0Harmony.dll</HintPath>
     </Reference>
@@ -59,9 +56,6 @@
     </Reference>
     <Reference Include="Klattersynth">
       <HintPath>$(GameAssemblyDir)\Klattersynth.dll</HintPath>
-    </Reference>
-    <Reference Include="MenuLib">
-      <HintPath>$(GameBaseDir)\BepInEx\plugins\Menu Lib\MenuLib.dll</HintPath>
     </Reference>
     <Reference Include="Mono.Cecil">
       <HintPath>$(GameBaseDir)\BepInEx\core\Mono.Cecil.dll</HintPath>

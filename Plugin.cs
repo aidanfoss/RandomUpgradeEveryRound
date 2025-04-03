@@ -8,12 +8,14 @@ using Steamworks;
 using BepInEx.Configuration;
 using System.Linq;
 
-namespace UpgradeEveryRound;
+namespace RandomUpgradeEveryRound;
 
+[BepInProcess("REPO.exe")]
+[BepInPlugin(Plugin.modGUID, Plugin.modName, Plugin.modVersion)]
 public class Plugin : BaseUnityPlugin
 {
-    public const string modGUID = "dev.redfops.repo.upgradeeveryround";
-    public const string modName = "Upgrade Every Round";
+    public const string modGUID = "dev.quantumaidan.repo.randomupgradeeveryround";
+    public const string modName = "Random Upgrade Every Round";
     public const string modVersion = "1.1.0";
 
     public static bool isOpen = false;
@@ -52,7 +54,7 @@ public class Plugin : BaseUnityPlugin
         Logger.LogInfo($"Plugin {MyPluginInfo.PLUGIN_GUID} is loaded!");
     }
 
-    public static void ApplyUpgrade(string _steamID, REPOPopupPage popupPage)
+    public static void ApplyUpgrade(string _steamID)
     {
         //Update UI to reflect upgrade
         StatsUI.instance.Fetch();
@@ -72,7 +74,7 @@ public class Plugin : BaseUnityPlugin
         if (value >= upgradesDeserved)
         {
             isOpen = false;
-            popupPage.ClosePage(true);
+            // no more popupPage.ClosePage(true);
         }
     }
 }
@@ -86,27 +88,50 @@ public static class PlayerSpawnPatch
         Level[] bannedLevels = [RunManager.instance.levelMainMenu, RunManager.instance.levelLobbyMenu, RunManager.instance.levelTutorial];
         if (bannedLevels.Contains(RunManager.instance.levelCurrent)) return;
 
-        string _steamID = SemiFunc.PlayerGetSteamID(SemiFunc.PlayerAvatarGetFromPhotonID(SemiFunc.PhotonViewIDPlayerAvatarLocal()));
-        int upgradesDeserved = RunManager.instance.levelsCompleted * Plugin.upgradesPerRound.Value;
-
-#if DEBUG
-        upgradesDeserved += 1;
-#endif
-
-        if (StatsManager.instance.dictionaryOfDictionaries["playerUpgradesUsed"][_steamID] >= upgradesDeserved) return;
-        if (GameManager.Multiplayer() && !___photonView.IsMine) return;
-
-        // Get number of upgrades to apply
-        int upgradesToApply = upgradesDeserved - StatsManager.instance.dictionaryOfDictionaries["playerUpgradesUsed"][_steamID];
-
-        for (int i = 0; i < upgradesToApply; i++)
+        if (!PhotonNetwork.IsMasterClient)
         {
-            ApplyRandomUpgrade(_steamID);
+            Plugin.Logger.LogInfo("[UpgradeEveryRound] Skipped upgrade logic — not master client.");
+            return;
+        }
+
+        if (PhotonNetwork.IsMasterClient)
+        {
+            Plugin.Logger.LogInfo("[UpgradeEveryRound] Applied upgrade logic — waiting 5 seconds.");
+            WaitForSeconds(25); //this isnt a real function i think
+            return;
+        }
+
+        Plugin.Logger.LogInfo("[UpgradeEveryRound] Running upgrade logic as master client.");
+
+        foreach (var avatar in SemiFunc.PlayerGetAll())
+        {
+            string steamID = SemiFunc.PlayerGetSteamID(avatar);
+            Plugin.Logger.LogInfo($"[UpgradeEveryRound] Found player avatar: {steamID}");
+
+            int upsDeserved = RunManager.instance.levelsCompleted * Plugin.upgradesPerRound.Value + 1;
+
+            #if DEBUG
+                upsDeserved += 1;
+            #endif
+
+            int upsUsed = StatsManager.instance.dictionaryOfDictionaries["playerUpgradesUsed"].GetValueOrDefault(steamID, 0);
+            int upsToApply = Mathf.Max(1, upsDeserved - upsUsed);
+
+            Plugin.Logger.LogInfo($"[UpgradeEveryRound] Player {steamID}: Upgrades used: {upsUsed}, deserved: {upsDeserved}, to apply: {upsToApply}");
+
+            for (int i = 0; i < upsToApply; i++)
+            {
+                Plugin.Logger.LogInfo($"[UpgradeEveryRound] Applying upgrade {i + 1} to {steamID}");
+                ApplyRandomUpgrade(steamID);
+            }
         }
     }
 
     private static void ApplyRandomUpgrade(string _steamID)
     {
+
+        Plugin.Logger.LogInfo($"[UpgradeEveryRound] Choosing upgrade for {_steamID}");
+
         List<int> availableChoices = [0, 1, 2, 3, 4, 5, 6, 7];
         int numChoices = Plugin.limitedChoices.Value ? Plugin.numChoices.Value : availableChoices.Count;
 
@@ -116,9 +141,7 @@ public static class PlayerSpawnPatch
                 availableChoices.RemoveAt(Random.Range(0, availableChoices.Count));
         }
 
-        int chosenUpgrade = availableChoices[Random.Range(0, availableChoices.Count)];
-
-        switch (chosenUpgrade)
+        switch (Random.Range(0, 7))
         {
             case 0:
                 PunManager.instance.UpgradePlayerEnergy(_steamID);
