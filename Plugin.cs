@@ -18,6 +18,7 @@ public class Plugin : BaseUnityPlugin
     public const string modName = "Random Upgrade Every Round";
     public const string modVersion = "1.1.0";
 
+    public static Plugin Instance { get; private set; }
     public static bool isOpen = false;
     public static ConfigEntry<int> upgradesPerRound;
     public static ConfigEntry<bool> limitedChoices;
@@ -29,7 +30,10 @@ public class Plugin : BaseUnityPlugin
     private void Awake()
     {
         // Plugin startup logic
+        Instance = this;
         Logger = base.Logger;
+
+        _ = CoroutineRunner.Instance;
 
         upgradesPerRound = Config.Bind("Upgrades", "Upgrades Per Round", 1, new ConfigDescription("Number of upgrades per round", new AcceptableValueRange<int>(0, 10)));
         limitedChoices = Config.Bind("Upgrades", "Limited random choices", false, new ConfigDescription("Only presents a fixed number of random options"));
@@ -51,7 +55,7 @@ public class Plugin : BaseUnityPlugin
         harmony.PatchAll(typeof(UpgradePlayerTumbleLaunchPatch));
 
 
-        Logger.LogInfo($"Plugin {MyPluginInfo.PLUGIN_GUID} is loaded!");
+        Logger.LogInfo($"Plugin {modGUID} is loaded!");
     }
 
     public static void ApplyUpgrade(string _steamID)
@@ -85,61 +89,25 @@ public static class PlayerSpawnPatch
 {
     static void Prefix(PhotonView ___photonView)
     {
-        Level[] bannedLevels = [RunManager.instance.levelMainMenu, RunManager.instance.levelLobbyMenu, RunManager.instance.levelTutorial];
-        if (bannedLevels.Contains(RunManager.instance.levelCurrent)) return;
-
-        if (!PhotonNetwork.IsMasterClient)
+        if (RunManager.instance.levelCurrent != RunManager.instance.levelShop)
         {
-            Plugin.Logger.LogInfo("[UpgradeEveryRound] Skipped upgrade logic — not master client.");
+            //Plugin.Logger.LogInfo("[UpgradeEveryRound] Skipping upgrade logic — not in Shop.");
             return;
         }
 
-        if (PhotonNetwork.IsMasterClient)
+        if (!PhotonNetwork.IsMasterClient)
         {
-            Plugin.Logger.LogInfo("[UpgradeEveryRound] Applied upgrade logic — waiting 5 seconds.");
-            WaitForSeconds(25); //this isnt a real function i think
+            //Plugin.Logger.LogInfo("[UpgradeEveryRound] Skipped upgrade logic — not master client.");
             return;
         }
 
         Plugin.Logger.LogInfo("[UpgradeEveryRound] Running upgrade logic as master client.");
-
-        foreach (var avatar in SemiFunc.PlayerGetAll())
-        {
-            string steamID = SemiFunc.PlayerGetSteamID(avatar);
-            Plugin.Logger.LogInfo($"[UpgradeEveryRound] Found player avatar: {steamID}");
-
-            int upsDeserved = RunManager.instance.levelsCompleted * Plugin.upgradesPerRound.Value + 1;
-
-            #if DEBUG
-                upsDeserved += 1;
-            #endif
-
-            int upsUsed = StatsManager.instance.dictionaryOfDictionaries["playerUpgradesUsed"].GetValueOrDefault(steamID, 0);
-            int upsToApply = Mathf.Max(1, upsDeserved - upsUsed);
-
-            Plugin.Logger.LogInfo($"[UpgradeEveryRound] Player {steamID}: Upgrades used: {upsUsed}, deserved: {upsDeserved}, to apply: {upsToApply}");
-
-            for (int i = 0; i < upsToApply; i++)
-            {
-                Plugin.Logger.LogInfo($"[UpgradeEveryRound] Applying upgrade {i + 1} to {steamID}");
-                ApplyRandomUpgrade(steamID);
-            }
-        }
+        CoroutineRunner.Instance.StartCoroutine(WaitForPlayersAndApplyUpgrades());
     }
+
 
     private static void ApplyRandomUpgrade(string _steamID)
     {
-
-        Plugin.Logger.LogInfo($"[UpgradeEveryRound] Choosing upgrade for {_steamID}");
-
-        List<int> availableChoices = [0, 1, 2, 3, 4, 5, 6, 7];
-        int numChoices = Plugin.limitedChoices.Value ? Plugin.numChoices.Value : availableChoices.Count;
-
-        if (Plugin.limitedChoices.Value)
-        {
-            while (availableChoices.Count > numChoices)
-                availableChoices.RemoveAt(Random.Range(0, availableChoices.Count));
-        }
 
         switch (Random.Range(0, 7))
         {
@@ -165,7 +133,17 @@ public static class PlayerSpawnPatch
                 PunManager.instance.UpgradePlayerTumbleLaunch(_steamID);
                 break;
             case 7:
-                PunManager.instance.UpgradeMapPlayerCount(_steamID);
+                if (StatsManager.instance.playerUpgradeMapPlayerCount.ContainsKey(_steamID) &&
+                    StatsManager.instance.playerUpgradeMapPlayerCount[_steamID] > 0)
+                {
+                    Plugin.Logger.LogInfo($"[UpgradeEveryRound] Rerolling upgrade for {_steamID} — already has MapPlayerCount");
+                    ApplyRandomUpgrade(_steamID); // Try another one
+                    return;
+                }
+                else
+                {
+                    PunManager.instance.UpgradeMapPlayerCount(_steamID);
+                }
                 break;
         }
 
@@ -180,6 +158,76 @@ public static class PlayerSpawnPatch
         // Optional: Visual effect or audio
         CameraGlitch.Instance?.PlayUpgrade();
     }
+
+    /*
+    private static IEnumerator WaitUntilStatInitialized(Dictionary<string, int> dict, string steamID, string statName, int maxTries = 600)
+    {
+        int tries = 0;
+        while (!dict.ContainsKey(steamID))
+        {
+            if (tries++ >= maxTries)
+            {
+                Plugin.Logger.LogWarning($"[UpgradeEveryRound] Timeout while waiting for {statName} to init for {steamID}");
+                yield break;
+            }
+
+            Plugin.Logger.LogInfo($"[UpgradeEveryRound] Waiting for {statName} to init for {steamID}... ({tries}/{maxTries})");
+            yield return null;
+        }
+    }
+    */
+
+    private static System.Collections.IEnumerator WaitForPlayersAndApplyUpgrades()
+    {
+        List<PlayerAvatar> players = null;
+
+        // Poll until player avatars are ready
+        while ((players = SemiFunc.PlayerGetAll()) == null || players.Count == 0)
+        {
+            Plugin.Logger.LogInfo("[UpgradeEveryRound] Waiting for player avatars to load...");
+            yield return null; // wait 1 frame
+        }
+
+        foreach (var avatar in players)
+        {
+            string steamID = SemiFunc.PlayerGetSteamID(avatar);
+            if (steamID == null) { break; }
+               
+            var stats = StatsManager.instance;
+
+            if (!stats.dictionaryOfDictionaries["playerUpgradesUsed"].ContainsKey(steamID))
+                stats.dictionaryOfDictionaries["playerUpgradesUsed"][steamID] = 0;
+
+            if (!stats.playerUpgradeLaunch.ContainsKey(steamID)) stats.playerUpgradeLaunch[steamID] = 0;
+            if (!stats.playerUpgradeStamina.ContainsKey(steamID)) stats.playerUpgradeStamina[steamID] = 0;
+            if (!stats.playerUpgradeExtraJump.ContainsKey(steamID)) stats.playerUpgradeExtraJump[steamID] = 0;
+            if (!stats.playerUpgradeRange.ContainsKey(steamID)) stats.playerUpgradeRange[steamID] = 0;
+            if (!stats.playerUpgradeStrength.ContainsKey(steamID)) stats.playerUpgradeStrength[steamID] = 0;
+            if (!stats.playerUpgradeHealth.ContainsKey(steamID)) stats.playerUpgradeHealth[steamID] = 0;
+            if (!stats.playerUpgradeSpeed.ContainsKey(steamID)) stats.playerUpgradeSpeed[steamID] = 0;
+            if (!stats.playerUpgradeMapPlayerCount.ContainsKey(steamID)) stats.playerUpgradeMapPlayerCount[steamID] = 0;
+
+
+            //Plugin.Logger.LogInfo($"[UpgradeEveryRound] Found player avatar: {steamID}");
+
+            int upsDeserved = RunManager.instance.levelsCompleted * Plugin.upgradesPerRound.Value;
+
+            #if DEBUG
+                upsDeserved += 1;
+            #endif
+
+            int upsUsed = StatsManager.instance.dictionaryOfDictionaries["playerUpgradesUsed"].GetValueOrDefault(steamID, 0);
+            int upsToApply = Mathf.Max(1, upsDeserved - upsUsed);
+
+            Plugin.Logger.LogInfo($"Player {steamID}: Upgrades used: {upsUsed}, deserved: {upsDeserved}, to apply: {upsToApply}");
+
+            for (int i = 0; i < upsToApply; i++)
+            {
+                //Plugin.Logger.LogInfo($"[UpgradeEveryRound] Applying upgrade {i + 1} to {steamID}");
+                ApplyRandomUpgrade(steamID);
+            }
+        }
+    }
 }
 
 //Our custom save data handling
@@ -190,6 +238,16 @@ public static class StatsManagerPatch
     static void Prefix(StatsManager __instance)
     {
         __instance.dictionaryOfDictionaries.Add("playerUpgradesUsed",[]);
+
+        // Initialize all player upgrade stat dictionaries to prevent null refs
+        __instance.playerUpgradeLaunch = new Dictionary<string, int>();
+        __instance.playerUpgradeStamina = new Dictionary<string, int>();
+        __instance.playerUpgradeExtraJump = new Dictionary<string, int>();
+        __instance.playerUpgradeRange = new Dictionary<string, int>();
+        __instance.playerUpgradeStrength = new Dictionary<string, int>();
+        __instance.playerUpgradeHealth = new Dictionary<string, int>();
+        __instance.playerUpgradeSpeed = new Dictionary<string, int>();
+        __instance.playerUpgradeMapPlayerCount = new Dictionary<string, int>();
     }
 }
 
@@ -319,3 +377,24 @@ public static class RunManagerMainMenuPatch
         Plugin.isOpen = false;
     }
 }
+
+public class CoroutineRunner : MonoBehaviour
+{
+    private static CoroutineRunner _instance;
+
+    public static CoroutineRunner Instance
+    {
+        get
+        {
+            if (_instance == null)
+            {
+                GameObject go = new GameObject("CoroutineRunner");
+                _instance = go.AddComponent<CoroutineRunner>();
+                UnityEngine.Object.DontDestroyOnLoad(go);
+            }
+            return _instance;
+        }
+    }
+}
+
+
